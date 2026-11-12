@@ -240,7 +240,7 @@ class TuyaLocalDevice(object):
 
         self._children.append(entity)
         for dp in entity._config.dps():
-            if dp.force and dp.id not in self._force_dps:
+            if dp.force and int(dp.id) not in self._force_dps:
                 self._force_dps.append(int(dp.id))
 
         if not self._running and not self._startup_listener:
@@ -318,7 +318,7 @@ class TuyaLocalDevice(object):
 
     def pause(self):
         self._temporary_poll = True
-        _LOGGER.debug("%s pausing connection temporarily", self.name, False)
+        _LOGGER.debug("%s pausing connection temporarily", self.name)
         self._api.set_socketPersistent(False)
         if self._api.parent:
             self._api.parent.set_socketPersistent(False)

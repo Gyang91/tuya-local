@@ -596,6 +596,34 @@ def test_register_subsequent_entity_ha_starting(subject, mocker):
     subject.start.assert_not_called()
 
 
+def test_register_entities_sharing_forced_dp(subject, mocker):
+    """A forced dp shared by several entities is only requested once."""
+    subject._children = []
+    subject._running = True
+    subject._startup_listener = None
+    subject.start = mocker.MagicMock()
+
+    forced = mocker.MagicMock(force=True, id="18")
+    other = mocker.MagicMock(force=True, id="19")
+    unforced = mocker.MagicMock(force=False, id="20")
+    for dps in ([forced, unforced], [forced, other], [forced]):
+        entity = mocker.MagicMock()
+        entity._config.dps.return_value = dps
+        subject.register_entity(entity)
+
+    assert subject._force_dps == [18, 19]
+
+
+def test_pause_logs_without_error(subject, caplog):
+    """Pausing logs a well-formed debug message."""
+    caplog.set_level(logging.DEBUG)
+
+    subject.pause()
+
+    assert subject._temporary_poll
+    assert "Some name pausing connection temporarily" in caplog.messages
+
+
 @pytest.mark.asyncio
 async def test_unregister_one_of_many_entities(subject, mocker):
     # Set up preconditions

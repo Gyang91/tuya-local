@@ -20,6 +20,25 @@ Fork of [make-all/tuya-local](https://github.com/make-all/tuya-local). The code 
 | Checks | Ruff, yamllint and pytest on every pull request and push to `main`; HACS and hassfest validation; daily security audit (pip-audit, OSV-Scanner, Gitleaks); Dependabot |
 | Report | Device support and device behaviour: [upstream issues](https://github.com/make-all/tuya-local/issues). Fork releases and fork fixes: [fork issues](https://github.com/Gyang91/tuya-local/issues). |
 
+### Connection handling
+
+Each device has one receive loop that keeps the connection open and updates its entities. In this fork:
+
+| Situation | Behaviour |
+|---|---|
+| The loop ends while the device is in use | It restarts after 5 s, doubling up to 5 min until data arrives. The entities are unavailable until the device responds. |
+| All entities of a device are removed and added again, for example when renaming an entity ID | The loop starts again, also while the previous loop is still closing. |
+| Home Assistant stops | The loop is cancelled instead of waiting for a pending read to time out. |
+| Data arrives | Only the entities using the received data points are updated; all of them on a full poll every 30 s or when the device becomes available. |
+
+Log messages:
+
+| Level | Message | Meaning |
+|---|---|---|
+| WARNING | `<device> receive loop ended unexpectedly, restarting in <n>s` | The loop recovered by itself. Report it in the [fork issues](https://github.com/Gyang91/tuya-local/issues) with the preceding log lines if it repeats. |
+| ERROR | `<device> receive loop terminated by exception ...` | Followed by a restart. Report it with the traceback. |
+| DEBUG | `<device> receive loop has terminated` | Normal stop, logged as a warning by upstream. |
+
 ### Install
 
 [![Open your Home Assistant instance and open this repository in the Marketplace.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Gyang91&repository=tuya-local&category=integration)

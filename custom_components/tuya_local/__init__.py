@@ -1127,7 +1127,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     await async_start_discovery(hass)
     config = {**entry.data, **entry.options, "name": entry.title}
     try:
-        device = await hass.async_add_executor_job(setup_device, hass, config)
+        device = await hass.async_add_executor_job(setup_device, hass, config, entry)
         await device.async_refresh()
 
     except Exception as e:
@@ -1153,7 +1153,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     await hass.config_entries.async_forward_entry_setups(entry, entities)
     await async_setup_services(hass, entities)
 
-    entry.add_update_listener(async_update_entry)
+    entry.async_on_unload(entry.add_update_listener(async_update_entry))
 
     return True
 

@@ -421,7 +421,9 @@ def test_pending_updates_cleared_on_receipt(subject):
 
 def test_actually_start(subject, mocker, patched_hass):
     # Set up the preconditions
-    mocker.patch.object(subject, "receive_loop", return_value="LOOP")
+    mocker.patch.object(
+        subject, "receive_loop", new=mocker.MagicMock(return_value="LOOP")
+    )
     create = mocker.patch.object(
         patched_hass, "async_create_background_task", return_value=mocker.MagicMock()
     )
@@ -440,6 +442,8 @@ def test_actually_start(subject, mocker, patched_hass):
     # did it start one loop with one shutdown listener?
     create.assert_called_once_with("LOOP", "tuya_local receive loop for Some name")
     assert subject._shutdown_listener is listener
+    # the task is a mock, so don't let the test teardown stop the device
+    listener()
 
 
 def test_start_starts_when_ha_running(subject, patched_hass, mocker):

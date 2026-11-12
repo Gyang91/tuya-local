@@ -1,5 +1,12 @@
 # Changelog
 
+## [2026.11.0-fork.3](https://github.com/Gyang91/tuya-local/compare/v2026.11.0-fork.2...v2026.11.0-fork.3) (2026-11-12)
+
+
+### Bug Fixes
+
+* **device:** keep the receive loop running ([fedc908](https://github.com/Gyang91/tuya-local/commit/fedc908ac531da9b4e0ae3664521367c175d98dd)), closes [#9](https://github.com/Gyang91/tuya-local/issues/9)
+
 ## [2026.11.0-fork.2](https://github.com/Gyang91/tuya-local/compare/v2026.11.0...v2026.11.0-fork.2) (2026-11-12)
 
 

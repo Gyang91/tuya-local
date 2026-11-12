@@ -1,5 +1,12 @@
 # Changelog
 
+## [2026.11.0-fork.4](https://github.com/Gyang91/tuya-local/compare/v2026.11.0-fork.3...v2026.11.0-fork.4) (2026-11-12)
+
+
+### Bug Fixes
+
+* **device:** end the restart delay when the device stops ([69709d2](https://github.com/Gyang91/tuya-local/commit/69709d22b856b1a39ab9dbf270c013d5677153dc))
+
 ## [2026.11.0-fork.3](https://github.com/Gyang91/tuya-local/compare/v2026.11.0-fork.2...v2026.11.0-fork.3) (2026-11-12)
 
 

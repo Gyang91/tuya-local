@@ -422,24 +422,24 @@ def test_pending_updates_cleared_on_receipt(subject):
 def test_actually_start(subject, mocker, patched_hass):
     # Set up the preconditions
     mocker.patch.object(subject, "receive_loop", return_value="LOOP")
-    mocker.patch.object(subject, "_refresh_task", new=mocker.AsyncMock)
+    create = mocker.patch.object(
+        patched_hass, "async_create_background_task", return_value=mocker.MagicMock()
+    )
+    create.return_value.done.return_value = False
     subject._running = False
-    mocker.patch.object(patched_hass, "async_create_task")
-    # patched_hass.async_create_task = mocker.MagicMock()
-    # patched_hass.bus.async_listen_once = mocker.AsyncMock()
-    # patched_hass.bus.async_listen_once.return_value = "LISTENER"
-    # run the function under test
+    subject._startup_listener = mocker.MagicMock()
+
+    # run the function under test twice
+    subject.actually_start()
+    listener = subject._shutdown_listener
     subject.actually_start()
 
-    # did it register a listener for EVENT_HOMEASSISTANT_STOP?
-    # patched_hass.bus.async_listen_once.assert_called_once_with(
-    #     EVENT_HOMEASSISTANT_STOP, subject.async_stop
-    # )
-    # assert subject._shutdown_listener == "LISTENER"
-    # did it set the running flag?
+    # did it set the running flag, and forget the fired startup listener?
     assert subject._running
-    # did it schedule the loop?
-    # task.assert_called_once()
+    assert subject._startup_listener is None
+    # did it start one loop with one shutdown listener?
+    create.assert_called_once_with("LOOP", "tuya_local receive loop for Some name")
+    assert subject._shutdown_listener is listener
 
 
 def test_start_starts_when_ha_running(subject, patched_hass, mocker):
@@ -652,6 +652,144 @@ async def test_unregister_last_entity(subject, mocker):
     assert subject._children == []
     # Was the loop stopped?
     subject.async_stop.assert_called_once()
+
+
+def _entity(mocker, *dp_ids):
+    entity = mocker.MagicMock()
+    entity._config.dps.return_value = [
+        mocker.MagicMock(id=dp_id, force=False, persist=True) for dp_id in dp_ids
+    ]
+    return entity
+
+
+def _fake_receive(subject, polls=()):
+    """Yield polls, then wait like a connected device until stopped."""
+
+    async def receive(generation=None):
+        for poll in polls:
+            yield poll
+        while subject._loop_active(generation):
+            await asyncio.sleep(0.01)
+
+    return receive
+
+
+@pytest.mark.asyncio
+async def test_restarts_after_deferred_start_and_stop(subject, patched_hass, mocker):
+    """A device started after HA startup restarts when entities re-register."""
+    mocker.patch.object(subject, "async_receive", _fake_receive(subject))
+    patched_hass.is_running = False
+    subject.register_entity(_entity(mocker, "1"))
+    assert subject._startup_listener is not None
+
+    patched_hass.is_running = True
+    subject.actually_start()
+    await subject.async_stop()
+    subject.register_entity(_entity(mocker, "1"))
+
+    assert subject._running
+    assert not subject._refresh_task.done()
+    await subject.async_stop()
+
+
+@pytest.mark.asyncio
+async def test_register_while_stopping_starts_new_loop(subject, mocker):
+    """An entity registering while the last one unregisters keeps a loop."""
+    mocker.patch.object(subject, "async_receive", _fake_receive(subject))
+    first = _entity(mocker, "1")
+    subject.register_entity(first)
+    old_task = subject._refresh_task
+
+    stopping = asyncio.create_task(subject.async_unregister_entity(first))
+    await asyncio.sleep(0)
+    subject.register_entity(_entity(mocker, "1"))
+    await asyncio.wait_for(stopping, 1)
+
+    assert old_task.done()
+    assert subject._running
+    assert subject._refresh_task is not old_task
+    assert not subject._refresh_task.done()
+    await subject.async_stop()
+
+
+@pytest.mark.asyncio
+async def test_receive_loop_restarts_when_it_ends(subject, mocker, caplog):
+    """The loop restarts, and the device is unavailable until it responds."""
+    calls = []
+    receive = _fake_receive(subject, [{"1": True, "full_poll": True}])
+
+    def ends_once(generation=None):
+        calls.append(generation)
+        if len(calls) == 1:
+            return _fake_receive(subject)(generation=-1)
+        return receive(generation)
+
+    mocker.patch.object(subject, "async_receive", ends_once)
+    subject._RESTART_BACKOFF = 0
+    entity = _entity(mocker, "1")
+    subject.register_entity(entity)
+    for _ in range(100):
+        if subject.has_returned_state:
+            break
+        await asyncio.sleep(0.01)
+
+    assert len(calls) == 2
+    assert "receive loop ended unexpectedly" in caplog.text
+    assert subject.get_property("1") is True
+    entity.async_schedule_update_ha_state.assert_called()
+    await subject.async_stop()
+
+
+@pytest.mark.asyncio
+async def test_stop_on_shutdown_cancels_blocked_loop(subject, mocker):
+    """HA shutdown does not wait for a blocked read to time out."""
+    blocked = asyncio.Event()
+
+    async def receive(generation=None):
+        await blocked.wait()
+        yield {}
+
+    mocker.patch.object(subject, "async_receive", receive)
+    subject.register_entity(_entity(mocker, "1"))
+    task = subject._refresh_task
+
+    await asyncio.wait_for(subject.async_stop(event=mocker.MagicMock()), 1)
+
+    assert task.cancelled()
+    assert not subject._running
+
+
+def test_poll_updates_only_entities_using_received_dps(subject, mocker):
+    subject.start = mocker.MagicMock()
+    subject._cached_state = {"1": False, "2": False, "updated_at": time()}
+    first = _entity(mocker, "1")
+    second = _entity(mocker, "2")
+    subject.register_entity(first)
+    subject.register_entity(second)
+    first.reset_mock()
+    second.reset_mock()
+
+    subject._handle_poll({"1": True, "full_poll": False})
+
+    first.async_schedule_update_ha_state.assert_called_once_with()
+    second.async_schedule_update_ha_state.assert_not_called()
+
+    subject._handle_poll({"2": True, "full_poll": True})
+
+    assert first.async_schedule_update_ha_state.call_count == 2
+    second.async_schedule_update_ha_state.assert_called_once_with()
+
+
+def test_poll_updates_all_entities_when_device_becomes_available(subject, mocker):
+    subject.start = mocker.MagicMock()
+    first = _entity(mocker, "1")
+    second = _entity(mocker, "2")
+    subject.register_entity(first)
+    subject.register_entity(second)
+
+    subject._handle_poll({"1": True, "full_poll": False})
+
+    second.async_schedule_update_ha_state.assert_called_once_with()
 
 
 @pytest.mark.asyncio

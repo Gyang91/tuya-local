@@ -5,6 +5,7 @@ API for Tuya Local devices.
 import asyncio
 import logging
 from asyncio.exceptions import CancelledError
+from contextlib import aclosing
 from time import time
 
 import tinytuya
@@ -60,6 +61,7 @@ class TuyaLocalDevice(object):
         poll_only=False,
         manufacturer=None,
         model=None,
+        config_entry=None,
     ):
         """
         Represents a Tuya-based device.
@@ -75,11 +77,18 @@ class TuyaLocalDevice(object):
             poll_only (bool): True if the device should be polled only.
             manufacturer (str | None): The device manufacturer, if known.
             model (str | None): The device model, if known.
+            config_entry (ConfigEntry | None): The entry owning the device.
         """
         self._name = name
         self._manufacturer = manufacturer
         self._model = model
+        self._config_entry = config_entry
         self._children = []
+        # dp ids each registered entity depends on
+        self._entity_dps = {}
+        # incremented on every stop, so a stopped receive loop that is still
+        # finishing never takes over from a newly started one
+        self._loop_generation = 0
         self._force_dps = []
         self._product_ids = []
         self._running = False
@@ -91,40 +100,24 @@ class TuyaLocalDevice(object):
         self.dev_id = dev_id
         self.dev_cid = dev_cid
         try:
-            if dev_cid:
-                if hass.data[DOMAIN].get(dev_id) and name != "Test":
-                    parent = hass.data[DOMAIN][dev_id]["tuyadevice"]
-                    parent_lock = hass.data[DOMAIN][dev_id].get(
-                        "tuyadevicelock", asyncio.Lock()
-                    )
-                else:
-                    parent = tinytuya.Device(dev_id, address, local_key)
-                    parent_lock = asyncio.Lock()
-                    if name != "Test":
-                        hass.data[DOMAIN][dev_id] = {
-                            "tuyadevice": parent,
-                            "tuyadevicelock": parent_lock,
-                        }
-                self._api = tinytuya.Device(
-                    dev_cid,
-                    cid=dev_cid,
-                    parent=parent,
-                )
-                self._api_lock = parent_lock
+            # The connection to dev_id and its lock are shared by every config
+            # entry using it: a plain device and the sub devices of a gateway.
+            shared = hass.data[DOMAIN].get(dev_id) if name != "Test" else None
+            if shared and shared.get("tuyadevice"):
+                api = shared["tuyadevice"]
+                lock = shared.get("tuyadevicelock", asyncio.Lock())
             else:
-                if hass.data[DOMAIN].get(dev_id) and name != "Test":
-                    self._api = hass.data[DOMAIN][dev_id]["tuyadevice"]
-                    self._api_lock = hass.data[DOMAIN][dev_id].get(
-                        "tuyadevicelock", asyncio.Lock()
+                api = tinytuya.Device(dev_id, address, local_key)
+                lock = asyncio.Lock()
+                if name != "Test":
+                    hass.data[DOMAIN].setdefault(dev_id, {}).update(
+                        tuyadevice=api, tuyadevicelock=lock
                     )
-                else:
-                    self._api = tinytuya.Device(dev_id, address, local_key)
-                    self._api_lock = asyncio.Lock()
-                    if name != "Test":
-                        hass.data[DOMAIN][dev_id] = {
-                            "tuyadevice": self._api,
-                            "tuyadevicelock": self._api_lock,
-                        }
+            if dev_cid:
+                self._api = tinytuya.Device(dev_cid, cid=dev_cid, parent=api)
+            else:
+                self._api = api
+            self._api_lock = lock
         except Exception as e:
             _LOGGER.error(
                 "%s: %s while initialising device %s",
@@ -141,6 +134,7 @@ class TuyaLocalDevice(object):
             self._api.parent.set_socketRetryLimit(1)
 
         self._refresh_task = None
+        self._stopping_task = None
         self._protocol_configured = protocol_version
         self._poll_only = poll_only
         self._temporary_poll = False
@@ -158,6 +152,10 @@ class TuyaLocalDevice(object):
         self._FAKE_IT_TIMEOUT = 5
         self._POLLING_INTERVAL = 30
         self._HEARTBEAT_INTERVAL = 5
+        # Delay before restarting a receive loop that ended unexpectedly,
+        # doubled on every restart without data in between
+        self._RESTART_BACKOFF = 5
+        self._MAX_RESTART_BACKOFF = 300
         # More attempts are needed in auto mode so we can cycle through all
         # the possibilities a couple of times
         self._AUTO_CONNECTION_ATTEMPTS = len(API_PROTOCOL_VERSIONS) * 2 + 1
@@ -196,15 +194,41 @@ class TuyaLocalDevice(object):
         cached = self._get_cached_state()
         return len(cached) > 1 or cached.get("updated_at", 0) > 0
 
+    def _set_persistent(self, persist):
+        """Keep the connection, and that of its gateway, open or close it."""
+        self._api.set_socketPersistent(persist)
+        if self._api.parent:
+            self._api.parent.set_socketPersistent(persist)
+
+    def _create_background_task(self, coro, name):
+        """Create a task that is cancelled when its entry or HA stops."""
+        if self._config_entry:
+            return self._config_entry.async_create_background_task(
+                self._hass, coro, name
+            )
+        return self._hass.async_create_background_task(coro, name)
+
+    def _loop_active(self, generation):
+        """Return True while the receive loop of this generation should run."""
+        return self._running and (
+            generation is None or generation == self._loop_generation
+        )
+
     @callback
     def actually_start(self, event=None):
         _LOGGER.debug("Starting monitor loop for %s", self.name)
+        # The listener has fired, or start() has removed it
+        self._startup_listener = None
         self._running = True
-        self._shutdown_listener = self._hass.bus.async_listen_once(
-            EVENT_HOMEASSISTANT_STOP, self.async_stop
-        )
-        if not self._refresh_task:
-            self._refresh_task = self._hass.async_create_task(self.receive_loop())
+        if not self._shutdown_listener:
+            self._shutdown_listener = self._hass.bus.async_listen_once(
+                EVENT_HOMEASSISTANT_STOP, self.async_stop
+            )
+        if self._refresh_task is None or self._refresh_task.done():
+            self._refresh_task = self._create_background_task(
+                self.receive_loop(self._loop_generation, self._stopping_task),
+                f"{DOMAIN} receive loop for {self.name}",
+            )
 
     def start(self):
         if self._hass.is_stopping:
@@ -222,15 +246,30 @@ class TuyaLocalDevice(object):
     async def async_stop(self, event=None):
         _LOGGER.debug("Stopping monitor loop for %s", self.name)
         self._running = False
+        self._loop_generation += 1
+        if event is not None:
+            # HA removes a listener once it has fired
+            self._shutdown_listener = None
+        if self._startup_listener:
+            self._startup_listener()
+            self._startup_listener = None
         self._children.clear()
+        self._entity_dps.clear()
         self._force_dps.clear()
-        if self._refresh_task:
-            self._api.set_socketPersistent(False)
-            if self._api.parent:
-                self._api.parent.set_socketPersistent(False)
-            await self._refresh_task
-        _LOGGER.debug("Monitor loop for %s stopped", self.name)
+        task = self._refresh_task
+        # Detach the task, so an entity registering while it finishes starts
+        # a new loop instead of relying on this one.
         self._refresh_task = None
+        if task:
+            self._stopping_task = task
+            self._set_persistent(False)
+            if event is not None:
+                # HA is stopping: don't wait for a blocked read to time out
+                task.cancel()
+            await asyncio.wait([task])
+            if self._stopping_task is task:
+                self._stopping_task = None
+        _LOGGER.debug("Monitor loop for %s stopped", self.name)
 
     def register_entity(self, entity):
         # If this is the first child entity to register, and HA is still
@@ -239,9 +278,12 @@ class TuyaLocalDevice(object):
         should_poll = len(self._children) == 0 and not self._hass.is_running
 
         self._children.append(entity)
+        dp_ids = set()
         for dp in entity._config.dps():
+            dp_ids.add(dp.id)
             if dp.force and int(dp.id) not in self._force_dps:
                 self._force_dps.append(int(dp.id))
+        self._entity_dps[id(entity)] = dp_ids
 
         if not self._running and not self._startup_listener:
             self.start()
@@ -252,65 +294,104 @@ class TuyaLocalDevice(object):
 
     async def async_unregister_entity(self, entity):
         self._children.remove(entity)
+        self._entity_dps.pop(id(entity), None)
         if not self._children:
             try:
                 await self.async_stop()
             except CancelledError:
                 pass
 
-    async def receive_loop(self):
-        """Coroutine wrapper for async_receive generator."""
-        try:
-            async for poll in self.async_receive():
-                if isinstance(poll, dict):
-                    _LOGGER.debug(
-                        "%s received %s",
-                        self.name,
-                        log_json(poll),
-                    )
-                    full_poll = poll.pop("full_poll", False)
-                    self._cached_state = self._cached_state | poll
-                    self._cached_state["updated_at"] = time()
-                    self._remove_properties_from_pending_updates(poll)
+    async def receive_loop(self, generation=None, previous=None):
+        """Process received data, restarting if the connection loop ends."""
+        if previous:
+            # Let a stopping loop close the connection before reopening it
+            await asyncio.wait([previous])
+        backoff = self._RESTART_BACKOFF
+        while self._loop_active(generation):
+            try:
+                async with aclosing(self.async_receive(generation)) as polls:
+                    async for poll in polls:
+                        self._handle_poll(poll)
+                        backoff = self._RESTART_BACKOFF
+            except Exception as t:
+                _LOGGER.exception(
+                    "%s receive loop terminated by exception %s", self.name, t
+                )
+            finally:
+                # Close the persistent connection, and show the device as
+                # unavailable until it responds again
+                self._set_persistent(False)
+                self._reset_cached_state()
 
-                    for entity in self._children:
-                        # let entities trigger off poll contents directly
-                        try:
-                            entity.on_receive(poll, full_poll)
-                        except Exception as e:
-                            # Don't let exceptions thrown by the entities interrupt the communication loop
-                            # Just log them and move on.
-                            _LOGGER.exception(
-                                "%s on_receive error for entity %s: %s",
-                                self.name,
-                                entity.entity_id,
-                                e,
-                            )
-                        # clear non-persistant dps that were not in a full poll
-                        if full_poll:
-                            for dp in entity._config.dps():
-                                if not dp.persist and dp.id not in poll:
-                                    self._cached_state.pop(dp.id, None)
-                        entity.schedule_update_ha_state()
-                else:
-                    _LOGGER.debug(
-                        "%s received non data %s",
-                        self.name,
-                        log_json(poll),
-                    )
-            _LOGGER.warning("%s receive loop has terminated", self.name)
-
-        except Exception as t:
-            _LOGGER.exception(
-                "%s receive loop terminated by exception %s", self.name, t
+            if not self._loop_active(generation) or self._hass.is_stopping:
+                break
+            _LOGGER.warning(
+                "%s receive loop ended unexpectedly, restarting in %ss",
+                self.name,
+                backoff,
             )
-        finally:
-            # Ensure the persistent connection is closed when the loop exits
-            # and device appears as unavailable
-            self._api.set_socketPersistent(False)
-            if self._api.parent:
-                self._api.parent.set_socketPersistent(False)
-            self._reset_cached_state()
+            self._update_entities()
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, self._MAX_RESTART_BACKOFF)
+        _LOGGER.debug("%s receive loop has terminated", self.name)
+
+    def _handle_poll(self, poll):
+        """Cache received dps and update the entities using them."""
+        if not isinstance(poll, dict):
+            _LOGGER.debug("%s received non data %s", self.name, log_json(poll))
+            return
+
+        _LOGGER.debug("%s received %s", self.name, log_json(poll))
+        full_poll = poll.pop("full_poll", False)
+        was_available = self.has_returned_state
+        self._cached_state = self._cached_state | poll
+        self._cached_state["updated_at"] = time()
+        self._remove_properties_from_pending_updates(poll)
+
+        children = list(self._children)
+        if full_poll:
+            # clear non-persistent dps that were not in a full poll
+            for entity in children:
+                for dp in entity._config.dps():
+                    if not dp.persist and dp.id not in poll:
+                        self._cached_state.pop(dp.id, None)
+
+        for entity in children:
+            # let entities trigger off poll contents directly
+            try:
+                entity.on_receive(poll, full_poll)
+            except Exception as e:
+                # Don't let exceptions thrown by the entities interrupt the
+                # communication loop. Just log them and move on.
+                _LOGGER.exception(
+                    "%s on_receive error for entity %s: %s",
+                    self.name,
+                    entity.entity_id,
+                    e,
+                )
+            dp_ids = self._entity_dps.get(id(entity))
+            if (
+                full_poll
+                or not was_available
+                or dp_ids is None
+                or not dp_ids.isdisjoint(poll)
+            ):
+                self._update_entity(entity)
+
+    def _update_entities(self):
+        for entity in list(self._children):
+            self._update_entity(entity)
+
+    def _update_entity(self, entity):
+        try:
+            entity.async_schedule_update_ha_state()
+        except Exception as e:
+            _LOGGER.exception(
+                "%s state update error for entity %s: %s",
+                self.name,
+                entity.entity_id,
+                e,
+            )
 
     @property
     def should_poll(self):
@@ -319,14 +400,12 @@ class TuyaLocalDevice(object):
     def pause(self):
         self._temporary_poll = True
         _LOGGER.debug("%s pausing connection temporarily", self.name)
-        self._api.set_socketPersistent(False)
-        if self._api.parent:
-            self._api.parent.set_socketPersistent(False)
+        self._set_persistent(False)
 
     def resume(self):
         self._temporary_poll = False
 
-    async def async_receive(self):
+    async def async_receive(self, generation=None):
         """Receive messages from a persistent connection asynchronously."""
         # If we didn't yet get any state from the device, we may need to
         # negotiate the protocol before making the connection persistent
@@ -335,13 +414,11 @@ class TuyaLocalDevice(object):
         # all dps updated
         dps_updated = False
 
-        self._api.set_socketPersistent(persist)
-        if self._api.parent:
-            self._api.parent.set_socketPersistent(persist)
+        self._set_persistent(persist)
 
         last_heartbeat = self._cached_state.get("updated_at", 0)
         wifi_api = self._api.parent or self._api
-        while self._running:
+        while self._loop_active(generation):
             error_count = self._api_working_protocol_failures
             force_backoff = False
             try:
@@ -359,9 +436,7 @@ class TuyaLocalDevice(object):
                     _LOGGER.debug(
                         "%s persistant connection set to %s", self.name, persist
                     )
-                    self._api.set_socketPersistent(persist)
-                    if self._api.parent:
-                        self._api.parent.set_socketPersistent(persist)
+                    self._set_persistent(persist)
                     self._last_full_poll = 0  # ensure we start with a full poll
 
                 needs_full_poll = now - self._last_full_poll > self._POLLING_INTERVAL
@@ -412,9 +487,7 @@ class TuyaLocalDevice(object):
                         if poll["Err"] in {"901", "902", "905", "906", "914"}:
                             force_backoff = True
                             persist = False
-                            self._api.set_socketPersistent(False)
-                            if self._api.parent:
-                                self._api.parent.set_socketPersistent(False)
+                            self._set_persistent(False)
                         # increment the error count if not done already
                         if error_count == self._api_working_protocol_failures:
                             self._api_working_protocol_failures += 1
@@ -440,13 +513,14 @@ class TuyaLocalDevice(object):
                             yield poll
 
             except CancelledError:
-                self._running = False
+                # A cancelled loop must not be restarted, but a replaced one
+                # must leave its successor running
+                if self._loop_active(generation):
+                    self._running = False
                 # Close the persistent connection when exiting the loop
                 persist = False
                 _LOGGER.debug("%s receive loop interrupted", self.name)
-                self._api.set_socketPersistent(False)
-                if self._api.parent:
-                    self._api.parent.set_socketPersistent(False)
+                self._set_persistent(False)
                 raise
             except Exception as t:
                 _LOGGER.exception(
@@ -456,9 +530,7 @@ class TuyaLocalDevice(object):
                     t,
                 )
                 persist = False
-                self._api.set_socketPersistent(False)
-                if self._api.parent:
-                    self._api.parent.set_socketPersistent(False)
+                self._set_persistent(False)
                 force_backoff = True
 
             if not self.has_returned_state or wifi_api.socket is None:
@@ -466,9 +538,7 @@ class TuyaLocalDevice(object):
             await asyncio.sleep(5 if force_backoff else 0.1)
 
         # Close the persistent connection when exiting the loop
-        self._api.set_socketPersistent(False)
-        if self._api.parent:
-            self._api.parent.set_socketPersistent(False)
+        self._set_persistent(False)
 
     def set_detected_product_id(self, product_id):
         self._product_ids.append(product_id)
@@ -714,9 +784,7 @@ class TuyaLocalDevice(object):
                     connections,
                 )
                 # Ensure we have a fresh connection for the next attempt
-                self._api.set_socketPersistent(False)
-                if self._api.parent:
-                    self._api.parent.set_socketPersistent(False)
+                self._set_persistent(False)
 
                 if i + 1 == connections:
                     self._reset_cached_state()
@@ -839,7 +907,7 @@ class TuyaLocalDevice(object):
         return keys[values.index(value)] if value in values else fallback
 
 
-def setup_device(hass: HomeAssistant, config: dict):
+def setup_device(hass: HomeAssistant, config: dict, config_entry=None):
     """Setup a tuya device based on passed in config."""
 
     _LOGGER.info("Creating device: %s", get_device_id(config))
@@ -855,6 +923,7 @@ def setup_device(hass: HomeAssistant, config: dict):
         config[CONF_POLL_ONLY],
         manufacturer=config.get(CONF_MANUFACTURER),
         model=config.get(CONF_MODEL),
+        config_entry=config_entry,
     )
     hass.data[DOMAIN][get_device_id(config)] = {
         "device": device,

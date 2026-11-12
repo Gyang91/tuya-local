@@ -707,9 +707,7 @@ async def async_test_connection(config: dict, hass: HomeAssistant):
             except Exception as e:
                 _LOGGER.debug("Protocol %s test failed with %s %s", proto, type(e), e)
             if device is not None:
-                device._api.set_socketPersistent(False)
-                if device._api.parent:
-                    device._api.parent.set_socketPersistent(False)
+                device._set_persistent(False)
     else:
         try:
             device = await hass.async_add_executor_job(

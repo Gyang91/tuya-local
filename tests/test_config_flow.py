@@ -107,7 +107,7 @@ async def test_async_setup_entry_cleans_up_failed_device(hass, mocker, refresh_e
     else:
         mock_device.async_refresh = mocker.AsyncMock(side_effect=refresh_error)
 
-    def fake_setup_device(hass, config):
+    def fake_setup_device(hass, config, config_entry=None):
         hass.data.setdefault(DOMAIN, {})
         hass.data[DOMAIN]["deviceid"] = {
             "device": mock_device,

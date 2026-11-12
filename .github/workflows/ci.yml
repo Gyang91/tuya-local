@@ -53,7 +53,7 @@ jobs:
           python-version: "3.14"
 
       - name: Install system libraries
-        run: sudo apt-get update && sudo apt-get install -y libturbojpeg
+        run: sudo apt-get update && sudo apt-get install -y libturbojpeg0
 
       - name: Compile Python sources
         run: uv run python -m compileall -q custom_components

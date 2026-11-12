@@ -49,7 +49,7 @@ jobs:
       - name: Test the release branch
         if: ${{ steps.release.outputs.pr }}
         run: |
-          sudo apt-get update && sudo apt-get install -y libturbojpeg
+          sudo apt-get update && sudo apt-get install -y libturbojpeg0
           uv run python -m compileall -q custom_components
           uv run pytest -q
       # Checks on a pull request opened by github-actions[bot] can wait for

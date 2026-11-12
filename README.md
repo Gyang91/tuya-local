@@ -1,4 +1,71 @@
-![logo](custom_components/tuya_local/brand/icon.svg) 
+[![release](https://img.shields.io/github/v/release/Gyang91/tuya-local?label=release&color=blue)](https://github.com/Gyang91/tuya-local/releases/latest)
+[![Marketplace](https://img.shields.io/badge/Marketplace-custom-orange.svg)](https://www.home-assistant.io/integrations/marketplace/#custom-repositories)
+[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2026.9%2B-41BDF5?logo=homeassistant&logoColor=white)](https://www.home-assistant.io/)
+[![CI](https://img.shields.io/github/actions/workflow/status/Gyang91/tuya-local/ci.yml?branch=main&label=CI)](https://github.com/Gyang91/tuya-local/actions/workflows/ci.yml)
+[![Validate](https://img.shields.io/github/actions/workflow/status/Gyang91/tuya-local/validate.yml?branch=main&label=validate)](https://github.com/Gyang91/tuya-local/actions/workflows/validate.yml)
+[![Security audit](https://img.shields.io/github/actions/workflow/status/Gyang91/tuya-local/security-audit.yml?branch=main&label=security%20audit)](https://github.com/Gyang91/tuya-local/actions/workflows/security-audit.yml)
+[![Dependabot](https://img.shields.io/badge/Dependabot-enabled-brightgreen?logo=dependabot)](.github/dependabot.yml)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.md)
+
+![logo](custom_components/tuya_local/brand/icon.svg)
+
+## About this fork
+
+Fork of [make-all/tuya-local](https://github.com/make-all/tuya-local). The code and device support are the same as upstream, plus the fixes listed in [CHANGELOG.md](CHANGELOG.md). The fork adds automated testing and releases, so Home Assistant can install and update Tuya Local from this repository. Everything after this section is upstream's documentation and applies unchanged.
+
+| Item | Value |
+|---|---|
+| Versions | `<upstream version>-fork.N`, for example `2026.11.0-fork.1`; tags are prefixed with `v` |
+| Requires | Home Assistant 2026.9 or later |
+| Checks | Ruff, yamllint and pytest on every pull request and push to `main`; HACS and hassfest validation; daily security audit (pip-audit, OSV-Scanner, Gitleaks); Dependabot |
+| Report | Device support and device behaviour: [upstream issues](https://github.com/make-all/tuya-local/issues). Fork releases and fork fixes: [fork issues](https://github.com/Gyang91/tuya-local/issues). |
+
+### Install
+
+[![Open your Home Assistant instance and open this repository in the Marketplace.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Gyang91&repository=tuya-local&category=integration)
+
+Or add `https://github.com/Gyang91/tuya-local` as a [custom repository](https://www.home-assistant.io/integrations/marketplace/#custom-repositories) of type **Integration**. Then install **Tuya Local** and restart Home Assistant.
+
+### Switch from make-all/tuya-local
+
+Only one repository can provide the `tuya_local` integration, and the Marketplace does not uninstall it while devices are configured. To switch:
+
+1. For each device, have the device ID, IP address, local key and protocol version ready, or use cloud-assisted setup to retrieve them again (see [Configuration](#configuration)).
+2. **Settings → Devices & services → Tuya Local**: delete every entry.
+3. In the Marketplace, uninstall *make-all/tuya-local*.
+4. Install this fork (see [Install](#install)) and restart Home Assistant.
+5. Add the devices again **within 30 days**, with the same device type. Home Assistant then restores the previous entity IDs, names and areas.
+
+### Updates
+
+Every `fix:`, `feat:` or `perf:` commit on `main` publishes a release once CI passes. Home Assistant then offers the update under **Settings → Updates**.
+
+```mermaid
+flowchart LR
+    A["Commit on main<br/>fix: / feat: / perf:"] --> B[CI]
+    B --> C[release-please PR]
+    C -->|auto-merge when green| D["Tag vX-fork.N<br/>+ GitHub release"]
+    D --> E["Home Assistant<br/>update available"]
+```
+
+| Commit type | Release |
+|---|---|
+| `fix:`, `feat:`, `perf:` | Yes, `-fork.N+1` |
+| `docs:`, `chore:`, `ci:`, `test:`, `build:` | No |
+
+### Sync with upstream
+
+To merge an upstream release, for example `2026.12.0`:
+
+```sh
+git fetch upstream --tags
+git merge 2026.12.0                 # README.md conflict: keep this section
+git push
+git commit --allow-empty -m "chore: release 2026.12.0-fork.1" -m "Release-As: 2026.12.0-fork.1"
+git push                            # publishes v2026.12.0-fork.1
+```
+
+---
 
 Please report any [issues](https://github.com/make-all/tuya-local/issues) and feel free to raise [pull requests](https://github.com/make-all/tuya-local/pulls).
 [Many others](https://github.com/make-all/tuya-local/blob/main/ACKNOWLEDGEMENTS.md) have contributed their help already.
@@ -37,7 +104,7 @@ follow the [instructions for adding a custom
 repository](https://www.home-assistant.io/integrations/marketplace/#custom-repositories) and then
 the integration will be available to install like any other.
 
-[![Open your Home Assistant instance and open a repository inside the Marketplace.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=make-all&repository=tuya-local&category=integration)
+[![Open your Home Assistant instance and open a repository inside the Marketplace.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Gyang91&repository=tuya-local&category=integration)
 
 ## Configuration
 

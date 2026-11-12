@@ -4,8 +4,9 @@ name: Release
 # release, chore / ci / docs / test do not. Versions carry the fork suffix on
 # top of the upstream release they are based on (2026.11.0-fork.N), so they
 # never collide with make-all/tuya-local versions; the version is written to
-# custom_components/tuya_local/manifest.json. After syncing a new upstream
-# release, reset .release-please-manifest.json to "<upstream>-fork.0".
+# custom_components/tuya_local/manifest.json. After merging a new upstream
+# release X, push an empty commit with the footer "Release-As: X-fork.1"
+# (see README.md, "Sync with upstream").
 
 on:
   push:

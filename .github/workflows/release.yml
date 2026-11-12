@@ -1,0 +1,78 @@
+name: Release
+
+# Conventional-commit releases via release-please: feat / fix / perf cut a
+# release, chore / ci / docs / test do not. Versions carry the fork suffix on
+# top of the upstream release they are based on (2026.11.0-fork.N), so they
+# never collide with make-all/tuya-local versions; the version is written to
+# custom_components/tuya_local/manifest.json. After syncing a new upstream
+# release, reset .release-please-manifest.json to "<upstream>-fork.0".
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  actions: write # approve the release pull request's checks
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Release PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: googleapis/release-please-action@v5
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      # Release without a manual merge: when release-please opened or updated
+      # its pull request, test that branch, merge it, and run release-please
+      # again to tag the release. A merge made with GITHUB_TOKEN starts no new
+      # workflow run, so tagging has to happen in this one. HACS installs the
+      # integration straight from the tag, so no release asset is needed.
+      - uses: actions/checkout@v7
+        if: ${{ steps.release.outputs.pr }}
+        with:
+          ref: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+      - uses: astral-sh/setup-uv@v10.3.3
+        if: ${{ steps.release.outputs.pr }}
+        with:
+          python-version: "3.14"
+      - name: Test the release branch
+        if: ${{ steps.release.outputs.pr }}
+        run: |
+          sudo apt-get update && sudo apt-get install -y libturbojpeg
+          uv run python -m compileall -q custom_components
+          uv run pytest -q
+      # Checks on a pull request opened by github-actions[bot] can wait for
+      # approval and expire as failed once it is merged: approve them.
+      - name: Approve the release pull request's checks
+        if: ${{ steps.release.outputs.pr }}
+        # env is evaluated even when the step is skipped: pass the raw output
+        # and parse it in the script (fromJSON('') would fail every run).
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ steps.release.outputs.pr }}
+        run: |
+          BRANCH=$(jq -r .headBranchName <<<"$PR")
+          for id in $(gh api "repos/${{ github.repository }}/actions/runs?branch=$BRANCH&status=action_required" --jq '.workflow_runs[].id'); do
+            gh api -X POST "repos/${{ github.repository }}/actions/runs/$id/approve" || echo "Could not approve run $id"
+          done
+      - name: Merge the release pull request
+        if: ${{ steps.release.outputs.pr }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr merge "${{ fromJSON(steps.release.outputs.pr).number }}" --squash --delete-branch --repo "${{ github.repository }}"
+      - uses: googleapis/release-please-action@v5
+        if: ${{ steps.release.outputs.pr }}
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

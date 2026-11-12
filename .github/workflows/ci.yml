@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.14"
+
+      - name: Python lint
+        run: uv run ruff check --output-format=github .
+
+      - name: Python import order
+        run: uv run ruff check --select I --diff .
+
+      - name: Python formatting
+        run: uv run ruff format --check --diff .
+
+      - name: YAML lint
+        run: uv run yamllint --format github custom_components/tuya_local/devices
+
+  tests:
+    name: Python tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.14"
+
+      - name: Install system libraries
+        run: sudo apt-get update && sudo apt-get install -y libturbojpeg
+
+      - name: Compile Python sources
+        run: uv run python -m compileall -q custom_components
+
+      # Covers device configs (tests/test_device_config.py) and translations
+      # (tests/test_translations.py) as well as the integration code.
+      - name: Run tests
+        run: uv run pytest -q --cov=custom_components/tuya_local --cov-report term:skip-covered
+
+      - name: Check untranslated entities
+        run: uv run untranslated_entities

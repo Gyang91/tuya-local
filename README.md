@@ -50,7 +50,8 @@ flowchart LR
 
 | Commit type | Release |
 |---|---|
-| `fix:`, `feat:`, `perf:` | Yes, `-fork.N+1` |
+| `fix:`, `perf:` | Yes, `-fork.N+1` |
+| `feat:` | Yes, `-fork.N+1` while the upstream base is `X.Y.0`; on `X.Y.Z` with Z > 0 use `fix:` (a `feat:` would drop the suffix) |
 | `docs:`, `chore:`, `ci:`, `test:`, `build:` | No |
 
 ### Sync with upstream

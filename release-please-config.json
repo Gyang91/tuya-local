@@ -8,7 +8,7 @@
       "include-component-in-tag": false,
       "versioning": "prerelease",
       "prerelease-type": "fork",
-      "prerelease": false,
+      "prerelease": true,
       "extra-files": [
         {
           "type": "json",

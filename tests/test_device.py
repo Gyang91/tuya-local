@@ -745,6 +745,20 @@ async def test_receive_loop_restarts_when_it_ends(subject, mocker, caplog):
 
 
 @pytest.mark.asyncio
+async def test_stop_ends_restart_delay(subject, mocker):
+    """Unloading a device waiting to restart does not wait for the delay."""
+    mocker.patch.object(
+        subject, "async_receive", lambda generation=None: _fake_receive(subject)(-1)
+    )
+    subject._RESTART_BACKOFF = 300
+    subject.register_entity(_entity(mocker, "1"))
+    await asyncio.sleep(0.05)
+    assert not subject._refresh_task.done()
+
+    await asyncio.wait_for(subject.async_stop(), 1)
+
+
+@pytest.mark.asyncio
 async def test_stop_on_shutdown_cancels_blocked_loop(subject, mocker):
     """HA shutdown does not wait for a blocked read to time out."""
     blocked = asyncio.Event()

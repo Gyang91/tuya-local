@@ -5,7 +5,7 @@ API for Tuya Local devices.
 import asyncio
 import logging
 from asyncio.exceptions import CancelledError
-from contextlib import aclosing
+from contextlib import aclosing, suppress
 from time import time
 
 import tinytuya
@@ -135,6 +135,8 @@ class TuyaLocalDevice(object):
 
         self._refresh_task = None
         self._stopping_task = None
+        # Set by async_stop to end a pending restart delay
+        self._stop_requested = asyncio.Event()
         self._protocol_configured = protocol_version
         self._poll_only = poll_only
         self._temporary_poll = False
@@ -247,6 +249,7 @@ class TuyaLocalDevice(object):
         _LOGGER.debug("Stopping monitor loop for %s", self.name)
         self._running = False
         self._loop_generation += 1
+        self._stop_requested.set()
         if event is not None:
             # HA removes a listener once it has fired
             self._shutdown_listener = None
@@ -331,7 +334,11 @@ class TuyaLocalDevice(object):
                 backoff,
             )
             self._update_entities()
-            await asyncio.sleep(backoff)
+            # Cleared after the active check above, so a stop from now on
+            # ends the delay instead of waiting for it
+            self._stop_requested.clear()
+            with suppress(TimeoutError):
+                await asyncio.wait_for(self._stop_requested.wait(), backoff)
             backoff = min(backoff * 2, self._MAX_RESTART_BACKOFF)
         _LOGGER.debug("%s receive loop has terminated", self.name)
 

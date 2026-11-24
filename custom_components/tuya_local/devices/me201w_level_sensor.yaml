@@ -17,6 +17,9 @@ entities:
             value: low
           - dps_val: upper_alarm
             value: high
+          - dps_val: null
+            value: null
+          - value: fault
   - entity: sensor
     name: Depth
     class: distance

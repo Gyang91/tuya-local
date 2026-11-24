@@ -1019,3 +1019,26 @@ def test_writing_target_range(mocker):
     mock_device = mocker.MagicMock()
     cfg = TuyaDpsConfig(mock_entity, mock_config)
     assert cfg.get_values_to_set(mock_device, 100) == {"1": 16}
+
+
+def test_me201w_status_maps_unknown_values_to_fault(mocker):
+    """Test that unmapped ME201W status values read as fault, not as raw values.
+
+    An ME201W can report error values such as err_echo_low, which must not
+    reach Home Assistant as states outside the enum sensor's options.
+    """
+    cfg = get_config("me201w_level_sensor")
+    status = next(e for e in cfg.all_entities() if e.translation_key == "status")
+    dp = status.find_dps("sensor")
+    for dps_val, expected in [
+        ("normal", "normal"),
+        ("lower_alarm", "low"),
+        ("upper_alarm", "high"),
+        ("err_echo_low", "fault"),
+        (None, None),
+    ]:
+        device = mock_device({"1": dps_val}, mocker)
+        assert dp.get_value(device) == expected, dps_val
+
+    sensor = TuyaLocalSensor(mock_device({"1": "err_echo_low"}, mocker), status)
+    assert sensor.native_value in sensor.options

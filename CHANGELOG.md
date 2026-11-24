@@ -1,5 +1,12 @@
 # Changelog
 
+## [2026.11.0-fork.5](https://github.com/Gyang91/tuya-local/compare/v2026.11.0-fork.4...v2026.11.0-fork.5) (2026-11-24)
+
+
+### Bug Fixes
+
+* **devices:** map unknown ME201W status values to fault ([#14](https://github.com/Gyang91/tuya-local/issues/14)) ([baead14](https://github.com/Gyang91/tuya-local/commit/baead14f1af18868eca29f84aff8b64506d68715))
+
 ## [2026.11.0-fork.4](https://github.com/Gyang91/tuya-local/compare/v2026.11.0-fork.3...v2026.11.0-fork.4) (2026-11-12)
 
 

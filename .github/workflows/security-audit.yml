@@ -24,7 +24,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.3
+      - uses: astral-sh/setup-uv@v10.4.0
         with:
           python-version: "3.14"
       # Audits the shipped requirements (tinytuya, tuya-device-sharing-sdk)
@@ -45,7 +45,7 @@ jobs:
       actions: read
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.3
+      - uses: astral-sh/setup-uv@v10.4.0
         with:
           python-version: "3.14"
       # uv.lock is not committed (upstream ignores it): create it so the

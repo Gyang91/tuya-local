@@ -1,0 +1,11 @@
+# Upstream commits the weekly sync leaves out (one full or short SHA per
+# line, then a reason). A listed commit that a new upstream release brings in
+# is reverted on top of that release before it is merged, so it never reaches
+# the fork. A commit already merged earlier stays as it is: revert it in a
+# normal pull request instead.
+
+# fix(device): catch BaseException instead of Exception. ValueError is
+# already an Exception subclass. BaseException would also catch GeneratorExit
+# at the yield in async_receive and CancelledError in the retry loop. Dropped
+# while merging 2026.11.1; listed here for the record.
+4fc87267e5b68dadf4d4ef64cb02585bcbd545b3

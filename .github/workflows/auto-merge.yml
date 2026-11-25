@@ -3,6 +3,7 @@ name: Auto-merge
 # Merge pull requests on their own once every check is green:
 # - the repository owner's pull requests (rebase, so each commit reaches the
 #   changelog), then start the Release workflow;
+#   upstream syncs (sync/upstream-* branches) use a merge commit instead;
 # - Dependabot's pull requests (squash; test tools and actions only, so no
 #   release).
 # Skipped: drafts, pull requests labelled `no-automerge`, pull requests from
@@ -63,6 +64,11 @@ jobs:
             app/dependabot) METHOD=--squash; RELEASE=false ;;
             *) echo "#$PR by $AUTHOR: not merged automatically"; exit 0 ;;
           esac
+          # Upstream syncs keep their merge commit, so the next sync finds
+          # the merge base; a rebase would copy every upstream commit.
+          if [ "$AUTHOR" = "$OWNER" ] && [[ "$BRANCH" == sync/upstream-* ]]; then
+            METHOD=--merge
+          fi
 
           # Wait for the other checks (lint, hassfest, security audit); stop on any failure.
           gh pr checks "$PR" --repo "$REPO" --watch --interval 20 --fail-fast

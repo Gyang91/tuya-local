@@ -1,5 +1,12 @@
 # Changelog
 
+## [2026.11.1-fork.1](https://github.com/Gyang91/tuya-local/compare/v2026.11.0-fork.5...v2026.11.1-fork.1) (2026-11-25)
+
+
+### Miscellaneous
+
+* release 2026.11.1-fork.1 ([36f416a](https://github.com/Gyang91/tuya-local/commit/36f416a00b337c2da7799a21c5d4e6c770a4305e))
+
 ## [2026.11.0-fork.5](https://github.com/Gyang91/tuya-local/compare/v2026.11.0-fork.4...v2026.11.0-fork.5) (2026-11-24)
 
 

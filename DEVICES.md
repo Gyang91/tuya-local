@@ -290,7 +290,7 @@
 - Beca BHT-12 thermostat smartplug
 - Beok TCB/W38 thermostat (also sold as RT-70 under other brands)
 - Beok TGR81 thermostat _(also reported working with Myuet ME98, Avatto WT81/ME81)_
-- Beok SH-TGM50-WP, TGM50, TOL47, TR8B thermostats
+- Beok SH-TGM50-WP, TGM50, TOL47, TR8B, TCC31  thermostats
 - Beok TR9B _(rebadged as Vancoo and perhaps others)_, TR9B-AC2 thermostats
 - BHT-002-GALW and GABW thermostats _(rebadged as many different brands)_
 - Brade MC6 thermostat _(rebadged as many different brands)_
@@ -516,6 +516,7 @@
 - Cleverio AP100 air purifier
 - ComfortZone AP100 air purifier
 - Dayette AP409 air purifier
+- Djive Flowmate ARC Casual purifiying fan
 - Duux Bright air purifier
 - essentials portable air purifier
 - Himox H05 and H06 air purifiers
@@ -1431,6 +1432,7 @@ port and password.
 - Manta Windy MT0200B weather station
 - Mayborn GroClock Connect sleep training alarm clock (also sold under Tommee Tippee and other brands)
 - ME201W level sensor
+- MG2-6HW breathing mmWave radar
 - Mirabella Genio motion sensor
 - Moes human presence sensor
 - Moes single outlet water timer
@@ -1562,7 +1564,8 @@ entity types as sub devices.
 - Avatto TRV06 radiator valve (also sold branded as Thaleos)
 - Avatto ZWT198 thermostat
 - Beok BAC-009 smart knob thermostat
-- Generic Zigbee Door Sensor
+- Door Sensor
+- Ekaza EKAV-T229Z door lock
 - Haozee RB-SRAIN01 solar rain sensor
 - Haozee ZG-302ZM mmWave presence dual light switch
 - Intelbras IFR7000 door lock

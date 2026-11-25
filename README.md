@@ -75,7 +75,23 @@ flowchart LR
 
 ### Sync with upstream
 
-To merge an upstream release, for example `2026.12.0`:
+Every Monday the Upstream sync workflow merges the latest upstream release
+on a `sync/upstream-X` branch and opens a pull request for it. Auto-merge
+merges that pull request with a merge commit once CI passes, and Release
+publishes `X-fork.1`. Unreleased upstream commits are not synced. The sync
+resolves the conflicts the fork always has:
+
+- upstream's workflow files are removed (the fork has its own);
+- the fork's version is kept; upstream's requirements are taken;
+- upstream commits listed in `.github/upstream-sync-excludes` are reverted
+  before the merge, with the reason recorded there.
+
+Any other conflict opens an issue instead: merge that release by hand as
+shown below. The workflow needs the `UPSTREAM_SYNC_TOKEN` secret: a
+fine-grained personal access token for this repository with Contents,
+Pull requests, Issues and Workflows set to read and write.
+
+To merge an upstream release by hand, for example `2026.12.0`:
 
 ```sh
 git fetch upstream --tags
